@@ -13,7 +13,7 @@ def fetch_last_two_closes():
     Fetch last 2 hourly closing prices from Binance Klines API
     Returns: (previous_close, current_close)
     """
-    url = "https://api.binance.com/api/v3/klines"
+    url = "https://data-api.binance.vision/api/v3/klines"
     params = {
         "symbol": BINANCE_SYMBOL,
         "interval": INTERVAL,
