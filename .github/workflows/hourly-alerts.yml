@@ -2,7 +2,7 @@ name: BTC Price Alert
 
 on:
   schedule:
-    - cron: "*/5 * * * *"  # every hour (UTC)
+    - cron: "0 * * * *"  # every hour (UTC)
   workflow_dispatch:  # allow manual trigger
 
 jobs:
