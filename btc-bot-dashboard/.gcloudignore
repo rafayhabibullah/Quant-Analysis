@@ -1,0 +1,6 @@
+.git
+.gcloudignore
+index.html
+*.md
+__pycache__
+*.pyc
