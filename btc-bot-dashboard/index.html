@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>BTC Bot Dashboard</title>
+  <style>
+    :root {
+      --bg:      #0d1117;
+      --surface: #161b22;
+      --border:  #30363d;
+      --text:    #e6edf3;
+      --muted:   #8b949e;
+      --green:   #3fb950;
+      --red:     #f85149;
+      --yellow:  #d29922;
+      --blue:    #58a6ff;
+      --radius:  8px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 { font-size: 16px; font-weight: 600; }
+    header h1 span { color: var(--blue); }
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: #1c2128; border: 1px solid var(--border);
+      border-radius: 20px; padding: 4px 12px; font-size: 12px;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green);
+           animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    main { max-width: 1000px; margin: 0 auto; padding: 24px 16px; }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+    .card .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
+    .card .value { font-size: 24px; font-weight: 700; }
+    .card .sub   { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .green { color: var(--green); }
+    .red   { color: var(--red);   }
+    .blue  { color: var(--blue);  }
+    .yellow{ color: var(--yellow);}
+
+    .section-title {
+      font-size: 13px; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .5px;
+      margin-bottom: 12px;
+    }
+
+    .trade-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 24px;
+    }
+    .open-trade { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+    .open-trade .field .key   { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+    .open-trade .field .val   { font-size: 15px; font-weight: 600; }
+
+    .no-trade { color: var(--muted); font-style: italic; padding: 8px 0; }
+
+    table { width: 100%; border-collapse: collapse; }
+    thead th {
+      text-align: left; font-size: 11px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .5px;
+      padding: 8px 12px; border-bottom: 1px solid var(--border);
+    }
+    tbody tr { border-bottom: 1px solid #1c2128; transition: background .1s; }
+    tbody tr:hover { background: #1c2128; }
+    tbody td { padding: 10px 12px; font-size: 13px; }
+    .pill {
+      display: inline-block; padding: 2px 8px; border-radius: 20px;
+      font-size: 11px; font-weight: 600;
+    }
+    .pill.win  { background: #1a2e1a; color: var(--green); }
+    .pill.loss { background: #2e1a1a; color: var(--red);   }
+    .pill.buy  { background: #1a2533; color: var(--blue);  }
+    .pill.sell { background: #2e1e1a; color: var(--yellow);}
+
+    .refresh-row {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .refresh-row .ts { font-size: 12px; color: var(--muted); }
+    .refresh-btn {
+      background: #1c2128; border: 1px solid var(--border);
+      color: var(--text); border-radius: var(--radius);
+      padding: 6px 14px; cursor: pointer; font-size: 12px;
+    }
+    .refresh-btn:hover { background: #2d333b; }
+
+    .error-box {
+      background: #2e1a1a; border: 1px solid var(--red);
+      border-radius: var(--radius); padding: 12px 16px;
+      color: var(--red); margin-bottom: 16px; font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>BTC Bot &nbsp;<span>Consensus ≥4/5</span></h1>
+  <div class="badge"><div class="dot"></div> Live Paper Trading</div>
+</header>
+
+<main>
+  <div class="refresh-row">
+    <span class="ts" id="last-updated">Fetching...</span>
+    <button class="refresh-btn" onclick="loadAll()">↻ Refresh</button>
+  </div>
+
+  <div id="error-box" class="error-box" style="display:none"></div>
+
+  <!-- Stats grid -->
+  <div class="grid" id="stats-grid">
+    <div class="card"><div class="label">Capital</div><div class="value" id="s-capital">—</div><div class="sub" id="s-return">—</div></div>
+    <div class="card"><div class="label">Today PnL</div><div class="value" id="s-today-pnl">—</div><div class="sub" id="s-today-n">—</div></div>
+    <div class="card"><div class="label">Win Rate</div><div class="value" id="s-wr">—</div><div class="sub" id="s-trades">—</div></div>
+    <div class="card"><div class="label">Total PnL</div><div class="value" id="s-total-pnl">—</div><div class="sub">all trades</div></div>
+  </div>
+
+  <!-- Open trade -->
+  <div class="section-title">Open Trade</div>
+  <div class="trade-box" id="open-trade-box">
+    <div class="no-trade">No open trade — watching for signal...</div>
+  </div>
+
+  <!-- Trade history -->
+  <div class="section-title">Trade History</div>
+  <div class="trade-box" style="padding:0; overflow:hidden">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Signal</th>
+          <th>Entry</th>
+          <th>Exit</th>
+          <th>PnL</th>
+          <th>Status</th>
+          <th>Capital</th>
+        </tr>
+      </thead>
+      <tbody id="trades-body">
+        <tr><td colspan="7" style="padding:20px;color:var(--muted);text-align:center">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+  const API = 'https://btc-bot-1005021454052.europe-west1.run.app';
+
+  function fmt(n, dec=2) {
+    return Number(n).toLocaleString('en-US', {minimumFractionDigits: dec, maximumFractionDigits: dec});
+  }
+  function fmtDate(s) {
+    if (!s) return '—';
+    const d = new Date(s.replace('T',' ') + (s.includes('Z') ? '' : 'Z'));
+    return d.toLocaleDateString('en-GB', {day:'2-digit',month:'short'}) + ' ' +
+           d.toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit'});
+  }
+  function colorClass(val) { return val > 0 ? 'green' : val < 0 ? 'red' : ''; }
+
+  async function loadStatus() {
+    const r = await fetch(`${API}/status`);
+    if (!r.ok) throw new Error(`/status returned ${r.status}`);
+    return r.json();
+  }
+
+  async function loadTrades() {
+    const r = await fetch(`${API}/trades`);
+    if (!r.ok) throw new Error(`/trades returned ${r.status}`);
+    return r.json();
+  }
+
+  function renderStatus(s, t) {
+    // Capital card
+    document.getElementById('s-capital').innerHTML =
+      `<span class="blue">$${fmt(s.capital)}</span>`;
+    const rc = s.return_pct >= 0 ? 'green' : 'red';
+    document.getElementById('s-return').innerHTML =
+      `<span class="${rc}">${s.return_pct >= 0 ? '+' : ''}${fmt(s.return_pct)}%</span> vs $${fmt(s.initial)}`;
+
+    // Today
+    const tc = s.pnl_today >= 0 ? 'green' : 'red';
+    document.getElementById('s-today-pnl').innerHTML =
+      `<span class="${tc}">${s.pnl_today >= 0 ? '+' : ''}$${fmt(s.pnl_today)}</span>`;
+    document.getElementById('s-today-n').textContent = `${s.trades_today} trades today`;
+
+    // Win rate
+    document.getElementById('s-wr').innerHTML =
+      `<span class="${t.win_rate >= 50 ? 'green' : 'red'}">${fmt(t.win_rate, 1)}%</span>`;
+    document.getElementById('s-trades').textContent =
+      `${t.wins}W / ${t.losses}L  (${t.count} total)`;
+
+    // Total PnL
+    const pc = t.total_pnl >= 0 ? 'green' : 'red';
+    document.getElementById('s-total-pnl').innerHTML =
+      `<span class="${pc}">${t.total_pnl >= 0 ? '+' : ''}$${fmt(t.total_pnl)}</span>`;
+
+    // Open trade
+    const box = document.getElementById('open-trade-box');
+    if (s.active) {
+      const a    = s.active;
+      const sig  = a.signal || '?';
+      const sc   = sig === 'BUY' ? 'blue' : 'yellow';
+      box.innerHTML = `
+        <div class="open-trade">
+          <div class="field"><div class="key">Direction</div>
+            <div class="val"><span class="${sc}">${sig}</span></div></div>
+          <div class="field"><div class="key">Entry</div>
+            <div class="val">$${fmt(a.entry_px)}</div></div>
+          <div class="field"><div class="key">Stop Loss</div>
+            <div class="val red">$${fmt(a.sl)}</div></div>
+          <div class="field"><div class="key">Target</div>
+            <div class="val green">$${fmt(a.tgt)}</div></div>
+          <div class="field"><div class="key">Risk</div>
+            <div class="val">$${fmt(a.risk_usd)}</div></div>
+          <div class="field"><div class="key">Votes</div>
+            <div class="val">${a.votes || '—'}/5</div></div>
+          <div class="field"><div class="key">Opened</div>
+            <div class="val" style="font-size:13px">${fmtDate(a.entry_ts)}</div></div>
+        </div>`;
+    } else {
+      box.innerHTML = '<div class="no-trade">No open trade — watching for signal...</div>';
+    }
+  }
+
+  function renderTrades(t) {
+    const tbody = document.getElementById('trades-body');
+    if (!t.trades || t.trades.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" style="padding:20px;color:var(--muted);text-align:center">No trades yet</td></tr>';
+      return;
+    }
+    tbody.innerHTML = t.trades.map(tr => {
+      const pnl = tr.pnl || 0;
+      const pc  = pnl >= 0 ? 'green' : 'red';
+      const sig = tr.signal || '?';
+      const sc  = sig === 'BUY' ? 'buy' : 'sell';
+      const st  = (tr.status || '').toLowerCase();
+      return `
+        <tr>
+          <td>${fmtDate(tr.entry_ts)}</td>
+          <td><span class="pill ${sc}">${sig}</span></td>
+          <td>$${fmt(tr.entry_price)}</td>
+          <td>$${fmt(tr.exit_price)}</td>
+          <td><span class="${pc}">${pnl >= 0 ? '+' : ''}$${fmt(pnl)}</span></td>
+          <td><span class="pill ${st === 'win' ? 'win' : 'loss'}">${tr.status || '—'}</span></td>
+          <td>$${fmt(tr.capital)}</td>
+        </tr>`;
+    }).join('');
+  }
+
+  async function loadAll() {
+    document.getElementById('error-box').style.display = 'none';
+    try {
+      const [s, t] = await Promise.all([loadStatus(), loadTrades()]);
+      renderStatus(s, t);
+      renderTrades(t);
+      document.getElementById('last-updated').textContent =
+        'Updated ' + new Date().toLocaleTimeString();
+    } catch(e) {
+      document.getElementById('error-box').textContent = '⚠ ' + e.message;
+      document.getElementById('error-box').style.display = 'block';
+      document.getElementById('last-updated').textContent = 'Failed to load';
+    }
+  }
+
+  // Load on start, then every 30 seconds
+  loadAll();
+  setInterval(loadAll, 30000);
+</script>
+</body>
+</html>
