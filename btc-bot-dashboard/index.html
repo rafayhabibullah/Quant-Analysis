@@ -8,23 +8,23 @@
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600;700&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet"/>
 <style>
 :root {
-  --bg:      #050810;
-  --s1:      #090C17;
-  --s2:      #0D1220;
-  --s3:      #121828;
-  --bd:      #182030;
-  --bd2:     #1E2840;
-  --text:    #D0DAF0;
-  --sub:     #6070A0;
-  --dim:     #2A3555;
-  --gold:    #F0B429;
-  --gold-d:  #3D2800;
-  --green:   #00C882;
-  --green-d: #00301E;
-  --red:     #FF3355;
-  --red-d:   #380010;
-  --blue:    #5B8EFF;
-  --blue-d:  #081240;
+  --bg:      #F4F5F7;
+  --s1:      #FFFFFF;
+  --s2:      #F9FAFB;
+  --s3:      #F0F1F3;
+  --bd:      #E2E5EA;
+  --bd2:     #CDD1D9;
+  --text:    #1A1F2E;
+  --sub:     #6B7590;
+  --dim:     #A8B0C2;
+  --gold:    #D4880A;
+  --gold-d:  #FEF3DC;
+  --green:   #0A8F5C;
+  --green-d: #E6F7F1;
+  --red:     #D92D45;
+  --red-d:   #FDEAED;
+  --blue:    #2B6BE6;
+  --blue-d:  #EAF0FD;
   --chakra: 'Chakra Petch', sans-serif;
   --fira:   'Fira Code', monospace;
 }
@@ -41,24 +41,12 @@ body {
   overflow-x: hidden;
 }
 
-/* Noise grain */
-body::before {
-  content: '';
-  position: fixed; inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  background-size: 200px 200px;
-  opacity: 0.022;
-  pointer-events: none;
-  z-index: 9999;
-}
-
-/* Ambient glow */
+/* Subtle top gradient wash */
 body::after {
   content: '';
   position: fixed; inset: 0;
   background:
-    radial-gradient(ellipse 70% 50% at 15% -10%, rgba(91,142,255,.055) 0%, transparent 60%),
-    radial-gradient(ellipse 50% 40% at 90% 105%, rgba(0,200,130,.04) 0%, transparent 55%);
+    radial-gradient(ellipse 60% 30% at 50% -5%, rgba(43,107,230,.05) 0%, transparent 60%);
   pointer-events: none;
   z-index: 0;
 }
@@ -66,7 +54,7 @@ body::after {
 /* ─── HEADER ─── */
 header {
   position: sticky; top: 0; z-index: 100;
-  background: rgba(5,8,16,.93);
+  background: rgba(255,255,255,.92);
   backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--bd);
   height: 62px;
@@ -79,16 +67,16 @@ header {
 .hdr-brand { display: flex; align-items: center; gap: 14px; }
 .brand-mark {
   width: 34px; height: 34px;
-  border: 1.5px solid rgba(240,180,41,.5);
+  border: 1.5px solid rgba(212,136,10,.4);
   display: flex; align-items: center; justify-content: center;
   position: relative; flex-shrink: 0;
-  background: linear-gradient(135deg, rgba(240,180,41,.08), transparent);
+  background: linear-gradient(135deg, rgba(212,136,10,.07), transparent);
 }
 .brand-mark::after {
   content: '';
   position: absolute;
   top: 3px; left: 3px; right: 3px; bottom: 3px;
-  border: 1px solid rgba(240,180,41,.15);
+  border: 1px solid rgba(212,136,10,.15);
 }
 .brand-mark .bm-inner {
   font-size: 14px; font-weight: 700;
@@ -164,7 +152,7 @@ header {
   background: transparent; border: 1px solid var(--bd2); color: var(--sub);
   transition: all .2s;
 }
-.hdr-btn:hover { border-color: var(--gold); color: var(--gold); background: rgba(240,180,41,.05); }
+.hdr-btn:hover { border-color: var(--gold); color: var(--gold); background: var(--gold-d); }
 
 /* ─── MAIN ─── */
 main {
@@ -196,6 +184,7 @@ main {
   padding: 14px 16px 13px;
   position: relative;
   overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
 }
 .stat-card::before {
   content: '';
@@ -242,6 +231,7 @@ main {
   border: 1px solid var(--bd);
   border-radius: 4px;
   overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,.06);
 }
 .panel-hdr {
   padding: 10px 18px;
@@ -831,7 +821,7 @@ function renderEquity(t) {
 
   const trades = (t && t.trades) ? [...t.trades].reverse() : [];
   if (trades.length < 2) {
-    ctx.fillStyle = '#2A3555';
+    ctx.fillStyle = '#A8B0C2';
     ctx.font = '11px Fira Code, monospace';
     ctx.textAlign = 'center';
     ctx.fillText('No trade history yet', W/2, H/2);
@@ -859,26 +849,26 @@ function renderEquity(t) {
     const frac = i/steps;
     const val  = maxC - frac*range;
     const y    = pad.t + frac*cH;
-    ctx.strokeStyle = '#0D1220'; ctx.lineWidth = 1;
+    ctx.strokeStyle = '#E2E5EA'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W-pad.r, y); ctx.stroke();
-    ctx.fillStyle = '#2A3555';
+    ctx.fillStyle = '#A8B0C2';
     ctx.fillText('$'+Math.round(val), pad.l-6, y+3.5);
   }
 
   // Baseline (initial)
   const baseY = toY(initial);
-  ctx.strokeStyle = '#1E2840'; ctx.lineWidth = 1; ctx.setLineDash([5,5]);
+  ctx.strokeStyle = '#CDD1D9'; ctx.lineWidth = 1; ctx.setLineDash([5,5]);
   ctx.beginPath(); ctx.moveTo(pad.l, baseY); ctx.lineTo(W-pad.r, baseY); ctx.stroke();
   ctx.setLineDash([]);
 
   // Fill
   const lastC  = capitals[capitals.length-1];
   const isUp   = lastC >= initial;
-  const fillC  = isUp ? 'rgba(0,200,130,' : 'rgba(255,51,85,';
-  const lineC  = isUp ? '#00C882' : '#FF3355';
+  const fillC  = isUp ? 'rgba(10,143,92,' : 'rgba(217,45,69,';
+  const lineC  = isUp ? '#0A8F5C' : '#D92D45';
 
   const grad = ctx.createLinearGradient(0, pad.t, 0, H-pad.b);
-  grad.addColorStop(0, fillC+'0.18)');
+  grad.addColorStop(0, fillC+'0.14)');
   grad.addColorStop(1, fillC+'0.01)');
   ctx.fillStyle = grad;
   ctx.beginPath();
@@ -896,10 +886,10 @@ function renderEquity(t) {
   // Trade dots with hollow center
   pts.slice(1).forEach((p,i)=>{
     const pnl = trades[i].pnl||0;
-    const col = pnl>=0 ? '#00C882' : '#FF3355';
+    const col = pnl>=0 ? '#0A8F5C' : '#D92D45';
     ctx.fillStyle = col;
     ctx.beginPath(); ctx.arc(p.x,p.y,3,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#090C17';
+    ctx.fillStyle = '#FFFFFF';
     ctx.beginPath(); ctx.arc(p.x,p.y,1.2,0,Math.PI*2); ctx.fill();
   });
 
