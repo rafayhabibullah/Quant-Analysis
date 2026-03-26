@@ -295,6 +295,12 @@ tbody td:first-child {
 .chip-loss  { background: var(--red-d);   color: var(--red);   }
 .chip-long  { background: var(--blue-d);  color: var(--blue);  }
 .chip-short { background: var(--gold-d);  color: var(--gold);  }
+.chip-v2    { background: #EDE9FE;  color: #7C3AED; }
+.chip-con   { background: #FEF3DC;  color: #D4880A; }
+.chip-both  { background: #E6F7F1;  color: #0A8F5C; }
+.chip-be    { background: #DBEAFE;  color: #2563EB; font-size: 10px; }
+.chip-trail { background: #FEF3DC;  color: #D97706; font-size: 10px; }
+.chip-pt    { background: #EDE9FE;  color: #7C3AED; font-size: 10px; }
 
 /* ─── OPEN POSITION ─── */
 .no-trade-msg {
@@ -429,7 +435,7 @@ tbody td:first-child {
     <div class="brand-mark"><span class="bm-inner">B</span></div>
     <div class="brand-text">
       <div class="name">Algo / BTC</div>
-      <div class="sub">Consensus &ge;4/5 &middot; Paper</div>
+      <div class="sub">Dual Strategy &middot; Paper</div>
     </div>
   </div>
 
@@ -531,16 +537,17 @@ tbody td:first-child {
                 <th>#</th>
                 <th>Opened</th>
                 <th>Dir</th>
+                <th>Strategy</th>
                 <th>Entry</th>
                 <th>Exit</th>
                 <th>PnL ($)</th>
-                <th>PnL (%)</th>
                 <th>Status</th>
-                <th>Capital After</th>
+                <th>Flags</th>
+                <th>Capital</th>
               </tr>
             </thead>
             <tbody id="trades-body">
-              <tr><td colspan="9" style="padding:28px;text-align:center;color:var(--sub)">Loading…</td></tr>
+              <tr><td colspan="10" style="padding:28px;text-align:center;color:var(--sub)">Loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -573,7 +580,7 @@ tbody td:first-child {
   <div class="dash-footer">
     <div class="df-left">
       <div class="df-dot"></div>
-      <span>Algo / BTC &middot; Paper Trading</span>
+      <span>Algo / BTC &middot; Dual Strategy &middot; Paper</span>
     </div>
     <span>Last Updated: <span id="last-updated" style="color:var(--sub)">—</span></span>
     <span>Auto-Refresh 30s</span>
@@ -766,6 +773,26 @@ function renderOpenTrade(s) {
   const tgt   = a.tgt      || 0;
   const entry = a.entry_px || 0;
   const sl    = a.sl       || 0;
+  const initSl = a.initial_sl || sl;
+  const strat  = a.strategy || 'consensus';
+  const conf   = a.confidence || '';
+  const be     = a.breakeven_hit || false;
+  const trail  = a.trailing_active || false;
+  const remPct = a.remaining_pct != null ? a.remaining_pct : 1.0;
+
+  // Strategy label
+  const stratLabel = strat === 'both' ? 'BOTH' : strat === 'v2' ? 'V2' : 'CONSENSUS';
+  const stratCls   = strat === 'both' ? 'chip-both' : strat === 'v2' ? 'chip-v2' : 'chip-con';
+
+  // Flags
+  let flags = '';
+  if (be)    flags += '<span class="chip chip-be">BE</span> ';
+  if (trail) flags += '<span class="chip chip-trail">TRAIL</span> ';
+  if (remPct < 0.99) flags += '<span class="chip chip-pt">50%TP</span> ';
+
+  // SL label (show if moved from original)
+  const slMoved = initSl !== sl;
+  const slBadge = slMoved ? 'TRAIL SL' : 'SL';
 
   body.innerHTML = `
     <div class="price-ladder">
@@ -784,7 +811,7 @@ function renderOpenTrade(s) {
       <div class="ladder-row lr-sl">
         <div class="lr-label">Stop</div>
         <div class="lr-price">$${f(sl)}</div>
-        <div class="lr-badge">SL</div>
+        <div class="lr-badge">${slBadge}</div>
       </div>
     </div>
     <div class="trade-meta">
@@ -793,8 +820,16 @@ function renderOpenTrade(s) {
         <div class="tm-v c-gold">$${f(a.risk_usd)}</div>
       </div>
       <div class="tm-cell">
-        <div class="tm-k">Votes</div>
-        <div class="tm-v c-blue">${a.votes||'—'} / 5</div>
+        <div class="tm-k">Strategy</div>
+        <div class="tm-v"><span class="chip ${stratCls}">${stratLabel}</span></div>
+      </div>
+      <div class="tm-cell">
+        <div class="tm-k">Pattern</div>
+        <div class="tm-v c-text" style="font-size:14px">${a.candle_type||'—'}</div>
+      </div>
+      <div class="tm-cell">
+        <div class="tm-k">Flags</div>
+        <div class="tm-v" style="font-size:14px">${flags || '—'}</div>
       </div>
       <div class="tm-cell full">
         <div class="tm-k">Opened</div>
@@ -805,7 +840,7 @@ function renderOpenTrade(s) {
       <div class="ub-label">Unrealised PnL</div>
       <div class="ub-val" id="upnl-val">—</div>
     </div>
-    <div class="pos-note">Updates on next candle close</div>`;
+    <div class="pos-note">${remPct < 0.99 ? 'Position: '+Math.round(remPct*100)+'% remaining' : 'Updates on next candle close'}</div>`;
 }
 
 function renderEquity(t) {
@@ -907,7 +942,7 @@ function renderEquity(t) {
 function renderTable(t) {
   const tbody = document.getElementById('trades-body');
   if (!t.trades || t.trades.length===0) {
-    tbody.innerHTML = `<tr><td colspan="9" style="padding:28px;text-align:center;color:var(--sub)">No trades yet</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" style="padding:28px;text-align:center;color:var(--sub)">No trades yet</td></tr>`;
     return;
   }
   tbody.innerHTML = t.trades.map((tr,i)=>{
@@ -916,20 +951,55 @@ function renderTable(t) {
     const dir    = tr.signal==='BUY'?'LONG':'SHORT';
     const dc     = dir==='LONG'?'chip-long':'chip-short';
     const sc     = (tr.status||'WIN').toUpperCase()==='WIN'?'chip-win':'chip-loss';
-    const capBef = tr.capital - pnl;
-    const pnlPct = capBef>0 ? (pnl/capBef*100) : 0;
+    // Strategy chip
+    const strat  = tr.strategy || 'consensus';
+    const stratLabel = strat === 'both' ? 'BOTH' : strat === 'v2' ? 'V2' : 'CON';
+    const stratCls   = strat === 'both' ? 'chip-both' : strat === 'v2' ? 'chip-v2' : 'chip-con';
+    // Flags
+    let flags = '';
+    if (tr.breakeven_hit)   flags += '<span class="chip chip-be">BE</span> ';
+    if (tr.trailing_active) flags += '<span class="chip chip-trail">TR</span> ';
+    if (tr.remaining_pct != null && tr.remaining_pct < 0.99) flags += '<span class="chip chip-pt">PT</span> ';
+    if (!flags) flags = '<span style="color:var(--dim)">—</span>';
     return `<tr>
       <td>${t.trades.length-i}</td>
       <td>${fDate(tr.entry_ts)}</td>
       <td><span class="chip ${dc}">${dir}</span></td>
+      <td><span class="chip ${stratCls}">${stratLabel}</span></td>
       <td>$${f(tr.entry_price)}</td>
       <td>$${f(tr.exit_price)}</td>
       <td class="${pc}">${pnl>=0?'+':''} $${f(Math.abs(pnl))}</td>
-      <td class="${pc}" style="font-size:13px">${pnlPct>=0?'+':''}${f(pnlPct,2)}%</td>
       <td><span class="chip ${sc}">${tr.status||'?'}</span></td>
+      <td>${flags}</td>
       <td style="color:var(--sub)">$${f(tr.capital)}</td>
     </tr>`;
   }).join('');
+
+  // Strategy breakdown bar
+  if (t.strategies) {
+    renderStrategyBreakdown(t.strategies);
+  }
+}
+
+function renderStrategyBreakdown(strategies) {
+  let existing = document.getElementById('strat-breakdown');
+  if (!existing) {
+    const tradePanel = document.querySelector('.left-col .panel:last-child');
+    if (!tradePanel) return;
+    const div = document.createElement('div');
+    div.id = 'strat-breakdown';
+    div.style.cssText = 'padding:10px 18px;border-top:1px solid var(--bd);display:flex;gap:16px;font-size:12px;font-family:var(--fira)';
+    tradePanel.appendChild(div);
+    existing = div;
+  }
+  let html = '<span style="color:var(--sub);letter-spacing:.1em;text-transform:uppercase;font-weight:600">By Strategy:</span>';
+  for (const [name, data] of Object.entries(strategies)) {
+    const wr = data.count > 0 ? (data.wins/data.count*100).toFixed(0) : 0;
+    const cls = name === 'both' ? 'chip-both' : name === 'v2' ? 'chip-v2' : 'chip-con';
+    html += ` <span class="chip ${cls}">${name.toUpperCase()}</span>`;
+    html += ` <span style="color:var(--sub)">${data.count}T ${wr}%WR $${(data.pnl||0).toFixed(0)}</span>`;
+  }
+  existing.innerHTML = html;
 }
 
 // ── Init ──────────────────────────────────────────────────────

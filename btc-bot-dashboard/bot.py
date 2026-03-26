@@ -1,8 +1,12 @@
 """
-Cloud Run Bot — BTC/ETH 5m Forward Test
-========================================
+Cloud Run Bot — BTC/ETH 5m Dual Strategy Forward Test
+=====================================================
 Stateless Flask handler triggered every 5 minutes by Cloud Scheduler.
 State (capital, open trade, trade log) persisted in Firestore.
+
+Runs BOTH strategies:
+  1. Consensus ≥4/5 (original)
+  2. V2 EMA/Stoch 5-Layer (trailing stop, partial TP, adaptive risk)
 
 Architecture:
   Cloud Scheduler  →  POST /run  →  Cloud Run (this file)
@@ -12,14 +16,6 @@ Architecture:
 
 Deploy:
   gcloud run deploy btc-bot --source . --region us-central1 --no-allow-unauthenticated
-
-Scheduler (run after deploy):
-  gcloud scheduler jobs create http btc-bot-trigger \\
-    --schedule="*/5 * * * *" \\
-    --uri="https://<YOUR_CLOUD_RUN_URL>/run" \\
-    --http-method=POST \\
-    --oidc-service-account-email=<YOUR_SA>@<PROJECT>.iam.gserviceaccount.com \\
-    --location=us-central1
 """
 
 import warnings
@@ -35,8 +31,11 @@ from google.cloud import firestore
 from forward_test import (
     fetch_candles, check_signal, check_exit, LOG_FILE,
 )
-from optimize_directional import FIXED, BUY, SELL, _atr
-from backtest_multi import build_trade
+from strategy_v2 import (
+    CONFIG as V2_CONFIG, BUY, SELL,
+    atr as v2_atr,
+    build_trade as v2_build_trade,
+)
 
 # ─────────────────────────────────────────────────────────────── #
 #  Setup                                                           #
@@ -62,9 +61,16 @@ def load_state() -> dict:
     doc = STATE_DOC.get()
     if doc.exists:
         return doc.to_dict()
-    # First run — initialise
-    state = dict(capital=INITIAL_CAPITAL, active=None,
-                 trades_today=0, pnl_today=0.0, last_date=None)
+    state = dict(
+        capital=INITIAL_CAPITAL,
+        active=None,
+        trades_today=0,
+        pnl_today=0.0,
+        last_date=None,
+        candles_held=0,
+        trade_history=[],      # For adaptive risk
+        equity_history=[INITIAL_CAPITAL],
+    )
     STATE_DOC.set(state)
     return state
 
@@ -89,7 +95,7 @@ def tick() -> dict:
     state = load_state()
 
     capital = state['capital']
-    active  = state.get('active')      # None or trade dict
+    active  = state.get('active')
     today   = now.date().isoformat()
 
     # Reset daily counters on new day
@@ -113,12 +119,18 @@ def tick() -> dict:
     btc_price  = float(last['close'])
     candle_ts  = last['datetime'].isoformat()
 
+    # Compute ATR for exit management
+    atr_series = v2_atr(btc, V2_CONFIG['atr_period'])
+    atr_val = float(atr_series.iloc[-1])
+
     result = {'candle': candle_ts, 'btc_price': btc_price, 'action': 'none'}
 
     # ── Manage open trade ─────────────────────────────────────────
     if active is not None:
-        import pandas as pd
-        exit_px, pnl = check_exit(active, last)
+        candles_held = state.get('candles_held', 0) + 1
+        state['candles_held'] = candles_held
+
+        exit_px, pnl = check_exit(active, last, candles_held, atr_val)
         if pnl is not None:
             capital      += pnl
             status        = 'WIN' if pnl > 0 else 'LOSS'
@@ -126,61 +138,92 @@ def tick() -> dict:
             state['trades_today'] += 1
 
             record = dict(
-                entry_ts    = active['entry_ts'],
-                exit_ts     = candle_ts,
-                signal      = 'BUY' if active['sig'] == BUY else 'SELL',
-                entry_price = active['entry_px'],
-                exit_price  = float(exit_px),
-                sl          = active['sl'],
-                target      = active['tgt'],
-                risk_usd    = active['risk_usd'],
-                pnl         = float(pnl),
-                status      = status,
-                capital     = float(capital),
-                votes       = active.get('votes', 4),
+                entry_ts     = active['entry_ts'],
+                exit_ts      = candle_ts,
+                signal       = active.get('signal', 'BUY' if active['sig'] == BUY else 'SELL'),
+                entry_price  = active['entry_px'],
+                exit_price   = float(exit_px),
+                sl           = active['sl'],
+                initial_sl   = active.get('initial_sl', active['sl']),
+                target       = active['tgt'],
+                risk_usd     = active['risk_usd'],
+                pnl          = float(pnl),
+                status       = status,
+                capital      = float(capital),
+                strategy     = active.get('strategy', 'consensus'),
+                confidence   = active.get('confidence', ''),
+                candle_type  = active.get('candle_type', ''),
+                breakeven_hit    = active.get('breakeven_hit', False),
+                trailing_active  = active.get('trailing_active', False),
+                remaining_pct    = active.get('remaining_pct', 1.0),
+                votes        = active.get('votes', 0),
             )
             save_trade(record)
-            log.info(f"Trade closed: {status}  pnl=${pnl:.2f}  capital=${capital:.2f}")
+            log.info(f"Trade closed: {status}  pnl=${pnl:.2f}  capital=${capital:.2f}  "
+                     f"strategy={active.get('strategy', '?')}")
+
+            # Update adaptive risk history
+            trade_history = state.get('trade_history', [])
+            trade_history.append({'pnl': float(pnl), 'status': status})
+            # Keep last 50 trades for adaptive risk
+            state['trade_history'] = trade_history[-50:]
+
+            equity_history = state.get('equity_history', [INITIAL_CAPITAL])
+            equity_history.append(float(capital))
+            state['equity_history'] = equity_history[-100:]
 
             state['active']  = None
             state['capital'] = capital
+            state['candles_held'] = 0
             save_state(state)
 
-            result['action'] = f'closed_{status.lower()}'
-            result['pnl']    = round(pnl, 2)
-            result['capital']= round(capital, 2)
+            result['action']   = f'closed_{status.lower()}'
+            result['pnl']      = round(pnl, 2)
+            result['capital']  = round(capital, 2)
+            result['strategy'] = active.get('strategy', '?')
             return result
 
-        # Trade still open
-        log.info(f"Trade open: {active['signal']}  entry={active['entry_px']:.2f}  "
-                 f"sl={active['sl']:.2f}  tgt={active['tgt']:.2f}  btc={btc_price:.2f}")
-        result['action']  = 'holding'
-        result['signal']  = active.get('signal', '?')
-        result['entry_px']= active['entry_px']
+        # Trade still open — save potentially updated SL (from trailing)
+        state['active'] = active
+        log.info(f"Trade open: {active.get('signal','?')}  entry={active['entry_px']:.2f}  "
+                 f"sl={active['sl']:.2f}  tgt={active['tgt']:.2f}  btc={btc_price:.2f}  "
+                 f"be={active.get('breakeven_hit',False)}  trail={active.get('trailing_active',False)}")
+        result['action']   = 'holding'
+        result['signal']   = active.get('signal', '?')
+        result['entry_px'] = active['entry_px']
+        result['breakeven_hit'] = active.get('breakeven_hit', False)
+        result['trailing_active'] = active.get('trailing_active', False)
         save_state(state)
         return result
 
     # ── Daily limits ──────────────────────────────────────────────
-    if state['trades_today'] >= FIXED['max_trades_day']:
+    if state['trades_today'] >= V2_CONFIG['max_trades_day']:
         result['action'] = 'skip_max_trades'
         return result
-    if state['pnl_today'] <= -(capital * FIXED['daily_loss_pct']):
+    if state['pnl_today'] <= -(capital * V2_CONFIG['daily_loss_pct']):
         result['action'] = 'skip_daily_loss_limit'
         return result
-    if state['pnl_today'] >= capital * FIXED['daily_profit_pct']:
+    if state['pnl_today'] >= capital * V2_CONFIG['daily_profit_pct']:
         result['action'] = 'skip_daily_profit_limit'
         return result
 
-    # ── Check for new signal ──────────────────────────────────────
-    direction, combo = check_signal(btc, eth)
+    # ── Check for new signal (dual strategy) ──────────────────────
+    direction, info = check_signal(btc, eth)
     if direction is None:
         log.info(f"No signal  btc=${btc_price:.2f}")
         save_state(state)
         return result
 
-    df    = btc.reset_index(drop=True)
-    atr   = _atr(df, FIXED['atr_period'])
-    trade = build_trade(combo, df, atr, len(df)-1, capital, direction)
+    # Build trade using V2 builder (has advanced fields)
+    df = btc.reset_index(drop=True)
+    trade_history = state.get('trade_history', [])
+    equity_history = state.get('equity_history', [INITIAL_CAPITAL])
+
+    trade = v2_build_trade(
+        BUY if direction == 'long' else SELL,
+        df, atr_series, len(df) - 1, capital,
+        trade_history, equity_history,
+    )
 
     if trade is None:
         result['action'] = 'signal_invalid_trade'
@@ -188,33 +231,41 @@ def tick() -> dict:
         return result
 
     # Open new paper trade
+    strategy = info.get('strategy', 'consensus')
     active = {
         **trade,
-        'signal'  : 'BUY' if trade['sig'] == BUY else 'SELL',
-        'entry_ts': candle_ts,
-        'votes'   : combo.get('votes', 4),
-        # Firestore can't store numpy types — convert
-        'entry_px': float(trade['entry_px']),
-        'sl'      : float(trade['sl']),
-        'tgt'     : float(trade['tgt']),
-        'risk_usd': float(trade['risk_usd']),
-        'rpu'     : float(trade['rpu']),
-        'sig'     : int(trade['sig']),
+        'entry_ts'   : candle_ts,
+        'strategy'   : strategy,
+        'confidence' : info.get('confidence', ''),
+        'votes'      : info.get('votes', 0),
+        'candle_type': info.get('candle_type', ''),
+        # Ensure Firestore-safe types
+        'entry_px'   : float(trade['entry_px']),
+        'sl'         : float(trade['sl']),
+        'initial_sl' : float(trade['initial_sl']),
+        'tgt'        : float(trade['tgt']),
+        'risk_usd'   : float(trade['risk_usd']),
+        'rpu'        : float(trade['rpu']),
+        'sig'        : int(trade['sig']),
     }
     state['active']  = active
     state['capital'] = capital
+    state['candles_held'] = 0
     save_state(state)
 
-    log.info(f"Trade opened: {active['signal']}  entry={active['entry_px']:.2f}  "
+    log.info(f"Trade opened: {active.get('signal','?')}  entry={active['entry_px']:.2f}  "
              f"sl={active['sl']:.2f}  tgt={active['tgt']:.2f}  "
-             f"votes={active['votes']}")
+             f"strategy={strategy}  confidence={info.get('confidence', '?')}")
 
-    result['action']   = f"opened_{direction}"
-    result['signal']   = active['signal']
-    result['entry_px'] = active['entry_px']
-    result['sl']       = active['sl']
-    result['tgt']      = active['tgt']
-    result['votes']    = active['votes']
+    result['action']     = f"opened_{direction}"
+    result['signal']     = active.get('signal', '?')
+    result['entry_px']   = active['entry_px']
+    result['sl']         = active['sl']
+    result['tgt']        = active['tgt']
+    result['strategy']   = strategy
+    result['confidence'] = info.get('confidence', '')
+    result['votes']      = info.get('votes', 0)
+    result['candle_type']= info.get('candle_type', '')
     return result
 
 
@@ -250,15 +301,18 @@ def status():
         return _cors({})
     try:
         state = load_state()
+        active = state.get('active')
+
         return _cors({
             'status'      : 'ok',
             'capital'     : round(state['capital'], 2),
             'initial'     : INITIAL_CAPITAL,
             'return_pct'  : round((state['capital'] - INITIAL_CAPITAL) / INITIAL_CAPITAL * 100, 2),
-            'active'      : state.get('active'),
+            'active'      : active,
             'trades_today': state.get('trades_today', 0),
             'pnl_today'   : round(state.get('pnl_today', 0), 2),
             'last_date'   : state.get('last_date'),
+            'strategy_mode': 'dual',
         })
     except Exception as e:
         return _cors({'status': 'error', 'message': str(e)}, 500)
@@ -274,6 +328,18 @@ def get_trades():
         trades = [d.to_dict() for d in docs]
         wins   = sum(1 for t in trades if t.get('pnl', 0) > 0)
         total_pnl = sum(t.get('pnl', 0) for t in trades)
+
+        # Strategy breakdown
+        by_strategy = {}
+        for t in trades:
+            s = t.get('strategy', 'consensus')
+            if s not in by_strategy:
+                by_strategy[s] = {'count': 0, 'wins': 0, 'pnl': 0}
+            by_strategy[s]['count'] += 1
+            if t.get('pnl', 0) > 0:
+                by_strategy[s]['wins'] += 1
+            by_strategy[s]['pnl'] += t.get('pnl', 0)
+
         return _cors({
             'count'    : len(trades),
             'wins'     : wins,
@@ -281,6 +347,7 @@ def get_trades():
             'win_rate' : round(wins / len(trades) * 100, 1) if trades else 0,
             'total_pnl': round(total_pnl, 2),
             'trades'   : trades,
+            'strategies': by_strategy,
         })
     except Exception as e:
         return _cors({'status': 'error', 'message': str(e)}, 500)
