@@ -564,6 +564,7 @@ tbody td:first-child {
             <thead>
               <tr>
                 <th>#</th>
+                <th>Symbol</th>
                 <th>Opened</th>
                 <th>Dir</th>
                 <th>Strategy</th>
@@ -576,7 +577,7 @@ tbody td:first-child {
               </tr>
             </thead>
             <tbody id="trades-body">
-              <tr><td colspan="10" style="padding:28px;text-align:center;color:var(--sub)">Loading…</td></tr>
+              <tr><td colspan="11" style="padding:28px;text-align:center;color:var(--sub)">Loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -586,11 +587,11 @@ tbody td:first-child {
     <!-- Right Column -->
     <div class="right-col">
 
-      <!-- Open Position -->
+      <!-- Active Positions -->
       <div class="panel">
         <div class="panel-hdr">
-          <span class="ph-title">Open Position</span>
-          <span class="ph-tag tag-wait" id="pos-tag">WAITING</span>
+          <span class="ph-title">Active Positions</span>
+          <span class="ph-tag tag-wait" id="pos-tag">0 / 5</span>
         </div>
         <div id="open-trade-body">
           <div class="no-trade-msg">
@@ -793,9 +794,13 @@ function renderOpenTrade(s) {
   const body   = document.getElementById('open-trade-body');
   const posTag = document.getElementById('pos-tag');
 
-  if (!s.active) {
-    posTag.textContent = 'WAITING';
-    posTag.className = 'ph-tag tag-wait';
+  const actives = s.active && typeof s.active === 'object' ? Object.entries(s.active) : [];
+  const n = actives.length;
+
+  posTag.textContent = n + ' / 5';
+  posTag.className   = n > 0 ? 'ph-tag tag-long' : 'ph-tag tag-wait';
+
+  if (n === 0) {
     body.innerHTML = `
       <div class="no-trade-msg">
         <div class="radar-wrap">
@@ -812,82 +817,44 @@ function renderOpenTrade(s) {
     return;
   }
 
-  const a   = s.active;
-  const dir = a.signal === 'BUY' ? 'LONG' : 'SHORT';
-  posTag.textContent = dir;
-  posTag.className   = 'ph-tag '+(dir==='LONG'?'tag-long':'tag-short');
-
-  const tgt   = a.tgt      || 0;
-  const entry = a.entry_px || 0;
-  const sl    = a.sl       || 0;
-  const initSl = a.initial_sl || sl;
-  const strat  = a.strategy || 'consensus';
-  const conf   = a.confidence || '';
-  const be     = a.breakeven_hit || false;
-  const trail  = a.trailing_active || false;
-  const remPct = a.remaining_pct != null ? a.remaining_pct : 1.0;
-
-  // Strategy label
-  const stratLabel = strat === 'both' ? 'BOTH' : strat === 'v2' ? 'V2' : 'CONSENSUS';
-  const stratCls   = strat === 'both' ? 'chip-both' : strat === 'v2' ? 'chip-v2' : 'chip-con';
-
-  // Flags
-  let flags = '';
-  if (be)    flags += '<span class="chip chip-be">BE</span> ';
-  if (trail) flags += '<span class="chip chip-trail">TRAIL</span> ';
-  if (remPct < 0.99) flags += '<span class="chip chip-pt">50%TP</span> ';
-
-  // SL label (show if moved from original)
-  const slMoved = initSl !== sl;
-  const slBadge = slMoved ? 'TRAIL SL' : 'SL';
-
-  body.innerHTML = `
-    <div class="price-ladder">
-      <div class="ladder-row lr-tgt">
-        <div class="lr-label">Target</div>
-        <div class="lr-price">$${f(tgt)}</div>
-        <div class="lr-badge">+2R</div>
-      </div>
-      <div class="ladder-connector con-green"></div>
-      <div class="ladder-row lr-entry">
-        <div class="lr-label">Entry</div>
-        <div class="lr-price">$${f(entry)}</div>
-        <div class="lr-badge">${dir}</div>
-      </div>
-      <div class="ladder-connector con-red"></div>
-      <div class="ladder-row lr-sl">
-        <div class="lr-label">Stop</div>
-        <div class="lr-price">$${f(sl)}</div>
-        <div class="lr-badge">${slBadge}</div>
-      </div>
-    </div>
-    <div class="trade-meta">
-      <div class="tm-cell">
-        <div class="tm-k">Risk</div>
-        <div class="tm-v c-gold">$${f(a.risk_usd)}</div>
-      </div>
-      <div class="tm-cell">
-        <div class="tm-k">Strategy</div>
-        <div class="tm-v"><span class="chip ${stratCls}">${stratLabel}</span></div>
-      </div>
-      <div class="tm-cell">
-        <div class="tm-k">Pattern</div>
-        <div class="tm-v c-text" style="font-size:14px">${a.candle_type||'—'}</div>
-      </div>
-      <div class="tm-cell">
-        <div class="tm-k">Flags</div>
-        <div class="tm-v" style="font-size:14px">${flags || '—'}</div>
-      </div>
-      <div class="tm-cell full">
-        <div class="tm-k">Opened</div>
-        <div class="tm-v c-text" style="font-size:13px">${fDate(a.entry_ts)} &middot; ${elapsed(a.entry_ts)}</div>
-      </div>
-    </div>
-    <div class="upnl-bar">
-      <div class="ub-label">Unrealised PnL</div>
-      <div class="ub-val" id="upnl-val">—</div>
-    </div>
-    <div class="pos-note">${remPct < 0.99 ? 'Position: '+Math.round(remPct*100)+'% remaining' : 'Updates on next candle close'}</div>`;
+  body.innerHTML = actives.map(([sym, a]) => {
+    const dir       = a.signal === 'BUY' ? 'LONG' : 'SHORT';
+    const strat     = a.strategy || 'v2';
+    const stratLabel = strat === 'both' ? 'BOTH' : strat === 'v2' ? 'V2' : 'CON';
+    const stratCls   = strat === 'both' ? 'chip-both' : strat === 'v2' ? 'chip-v2' : 'chip-con';
+    const be    = a.breakeven_hit || false;
+    const trail = a.trailing_active || false;
+    let flags = '';
+    if (be)    flags += '<span class="chip chip-be">BE</span> ';
+    if (trail) flags += '<span class="chip chip-trail">TR</span> ';
+    const slMoved = a.initial_sl && a.initial_sl !== a.sl;
+    const slBadge = slMoved ? 'TRAIL' : 'SL';
+    const symShort = sym.replace('/USDT','');
+    return `
+      <div style="border-bottom:1px solid var(--bd)">
+        <div style="display:flex;align-items:center;gap:8px;padding:9px 18px 6px">
+          <span style="font-size:12px;letter-spacing:.1em;font-weight:700;color:var(--text)">${symShort}</span>
+          <span class="chip ${dir==='LONG'?'chip-long':'chip-short'}">${dir}</span>
+          <span class="chip ${stratCls}">${stratLabel}</span>
+          ${flags}
+          <span style="margin-left:auto;font-size:11px;color:var(--dim);font-family:var(--fira)">${elapsed(a.entry_ts)}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;padding:0 18px 10px;gap:8px">
+          <div>
+            <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--sub);margin-bottom:2px">Entry</div>
+            <div style="font-family:var(--fira);font-size:14px;font-weight:600">$${f(a.entry_px)}</div>
+          </div>
+          <div>
+            <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--sub);margin-bottom:2px">${slBadge}</div>
+            <div style="font-family:var(--fira);font-size:14px;font-weight:600;color:var(--red)">$${f(a.sl)}</div>
+          </div>
+          <div>
+            <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--sub);margin-bottom:2px">Target</div>
+            <div style="font-family:var(--fira);font-size:14px;font-weight:600;color:var(--green)">$${f(a.tgt)}</div>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
 }
 
 function renderEquity(t) {
@@ -989,7 +956,7 @@ function renderEquity(t) {
 function renderTable(t) {
   const tbody = document.getElementById('trades-body');
   if (!t.trades || t.trades.length===0) {
-    tbody.innerHTML = `<tr><td colspan="10" style="padding:28px;text-align:center;color:var(--sub)">No trades yet</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11" style="padding:28px;text-align:center;color:var(--sub)">No trades yet</td></tr>`;
     return;
   }
   tbody.innerHTML = t.trades.map((tr,i)=>{
@@ -998,6 +965,7 @@ function renderTable(t) {
     const dir    = tr.signal==='BUY'?'LONG':'SHORT';
     const dc     = dir==='LONG'?'chip-long':'chip-short';
     const sc     = (tr.status||'WIN').toUpperCase()==='WIN'?'chip-win':'chip-loss';
+    const sym    = (tr.symbol||'BTC/USDT').replace('/USDT','');
     // Strategy chip
     const strat  = tr.strategy || 'consensus';
     const stratLabel = strat === 'both' ? 'BOTH' : strat === 'v2' ? 'V2' : 'CON';
@@ -1010,6 +978,7 @@ function renderTable(t) {
     if (!flags) flags = '<span style="color:var(--dim)">—</span>';
     return `<tr>
       <td>${t.trades.length-i}</td>
+      <td style="font-size:12px;font-family:var(--fira);font-weight:600">${sym}</td>
       <td>${fDate(tr.entry_ts)}</td>
       <td><span class="chip ${dc}">${dir}</span></td>
       <td><span class="chip ${stratCls}">${stratLabel}</span></td>
@@ -1059,62 +1028,72 @@ function renderLatestRun(r) {
     return;
   }
 
-  const actionMap = {
-    'none':                   ['NO SIGNAL',   'tag-wait'],
-    'holding':                ['HOLDING',     'tag-long'],
-    'opened_long':            ['OPENED LONG', 'tag-long'],
-    'opened_short':           ['OPENED SHORT','tag-short'],
-    'closed_win':             ['WIN',         'tag-live'],
-    'closed_loss':            ['LOSS',        'tag-short'],
-    'skip_max_trades':        ['MAX TRADES',  'tag-wait'],
-    'skip_daily_loss_limit':  ['LOSS LIMIT',  'tag-wait'],
-    'skip_daily_profit_limit':['PROFIT CAP',  'tag-wait'],
-    'signal_invalid_trade':   ['SIG ERROR',   'tag-wait'],
-  };
-  const [actionLabel, actionCls] = actionMap[r.action] || [(r.action||'—').toUpperCase(), 'tag-wait'];
-  if (tag) { tag.textContent = actionLabel; tag.className = 'ph-tag '+actionCls; }
+  // Summarise overall action across all symbols
+  const symsData = r.symbols || {};
+  const entries  = Object.entries(symsData);
+  const hasOpen  = entries.some(([,d])=>d.action==='opened_long'||d.action==='opened_short');
+  const hasWin   = entries.some(([,d])=>d.action==='closed_win');
+  const hasLoss  = entries.some(([,d])=>d.action==='closed_loss');
+  const nSig     = entries.filter(([,d])=>d.signal).length;
+  let overallLabel = 'NO SIGNAL', overallCls = 'tag-wait';
+  if (hasOpen)      { overallLabel = 'OPENED';   overallCls = 'tag-long'; }
+  else if (hasWin)  { overallLabel = 'WIN';       overallCls = 'tag-live'; }
+  else if (hasLoss) { overallLabel = 'LOSS';      overallCls = 'tag-short'; }
+  else if (nSig>0)  { overallLabel = nSig+' SIG'; overallCls = 'tag-long'; }
+  if (tag) { tag.textContent = overallLabel; tag.className = 'ph-tag '+overallCls; }
 
-  // BTC signal badge
-  const sig   = r.signal;
-  const strat = r.signal_strategy || '';
-  let sigHtml = '<span style="color:var(--dim)">None</span>';
-  if (sig === 'BUY')  sigHtml = '<span class="chip chip-long">LONG</span>';
-  if (sig === 'SELL') sigHtml = '<span class="chip chip-short">SHORT</span>';
-  if (sig && strat) {
-    const sc = strat==='both' ? 'chip-both' : strat==='v2' ? 'chip-v2' : 'chip-con';
-    sigHtml += `&nbsp;<span class="chip ${sc}">${strat.toUpperCase()}</span>`;
-    if (r.signal_confidence) sigHtml += `&nbsp;<span style="color:var(--dim);font-size:10px">${r.signal_confidence}</span>`;
-  }
-
-  // Hour + blocked (consensus: 0-4 UTC + {9,10,12,13,14,15}; V2: 0-3 UTC)
+  // Blocked hours check (Consensus: 00-04 UTC + {9,10,12,13,14,15})
   const h = r.hour_utc ?? '—';
-  const conBlocked = (h >= 0 && h < 4) || [9,10,12,13,14,15].includes(h);
-  const v2Blocked  = (h >= 0 && h < 4);
-  const hColor = conBlocked ? 'var(--red)' : (v2Blocked ? 'var(--gold)' : 'var(--sub)');
-  const hNote  = conBlocked ? ' · BLOCKED' : '';
+  const blocked = (h >= 0 && h < 4) || [9,10,12,13,14,15].includes(h);
+  const hColor  = blocked ? 'var(--red)' : 'var(--sub)';
+
+  // Per-symbol rows
+  const actionMap = {
+    none:               ['—',        'var(--dim)'],
+    holding:            ['HOLD',     'var(--blue)'],
+    opened_long:        ['OPENED↑',  'var(--green)'],
+    opened_short:       ['OPENED↓',  'var(--gold)'],
+    closed_win:         ['WIN',      'var(--green)'],
+    closed_loss:        ['LOSS',     'var(--red)'],
+    skip_max_trades:    ['MAX',      'var(--dim)'],
+    skip_max_positions: ['FULL',     'var(--dim)'],
+    skip_daily_loss:    ['D-LOSS',   'var(--red)'],
+    skip_daily_profit:  ['D-PROFIT', 'var(--green)'],
+    signal_invalid_trade:['SIG ERR', 'var(--red)'],
+    fetch_error:        ['ERR',      'var(--red)'],
+  };
+
+  const ALL_SYMS = ['BTC/USDT','ETH/USDT','SOL/USDT','BNB/USDT','XRP/USDT','SUI/USDT','OP/USDT','LINK/USDT','AVAX/USDT'];
+  const rows = ALL_SYMS.map(sym => {
+    const d = symsData[sym] || {};
+    const symShort = sym.replace('/USDT','');
+    const price = d.price != null ? '$'+f(d.price, symShort==='BTC' ? 0 : symShort==='XRP'||symShort==='SUI'||symShort==='OP' ? 4 : 2) : '—';
+    const [actLabel, actColor] = actionMap[d.action] || [(d.action||'—').toUpperCase(), 'var(--sub)'];
+    let sigHtml = '';
+    if (d.signal === 'BUY')  sigHtml = '<span class="chip chip-long" style="font-size:10px">L</span>';
+    if (d.signal === 'SELL') sigHtml = '<span class="chip chip-short" style="font-size:10px">S</span>';
+    if (d.signal && d.signal_strategy) {
+      const sc = d.signal_strategy==='both' ? 'chip-both' : d.signal_strategy==='v2' ? 'chip-v2' : 'chip-con';
+      sigHtml += `<span class="chip ${sc}" style="font-size:9px">${d.signal_strategy==='both'?'B':d.signal_strategy==='v2'?'V':'C'}</span>`;
+    }
+    return `<div class="run-asset-row">
+      <div class="ra-name">${symShort}</div>
+      <div class="ra-price" style="font-size:14px">${price}</div>
+      <div class="ra-meta" style="gap:4px">
+        ${sigHtml || '<span style="color:var(--dim);font-size:11px">—</span>'}
+        <span style="color:${actColor};font-size:11px;font-weight:600;letter-spacing:.06em">${actLabel}</span>
+      </div>
+    </div>`;
+  }).join('');
 
   body.innerHTML = `
-    <div class="run-assets">
-      <div class="run-asset-row">
-        <div class="ra-name">BTC/USDT</div>
-        <div class="ra-price">$${f(r.btc_price, 0)}</div>
-        <div class="ra-meta">
-          <span>ATR&nbsp;$${f(r.atr, 0)}</span>
-          ${sigHtml}
-        </div>
-      </div>
-      <div class="run-asset-row">
-        <div class="ra-name">ETH/USDT</div>
-        <div class="ra-price">$${f(r.eth_price, 2)}</div>
-        <div class="ra-meta" style="color:var(--dim)">Corr. pair</div>
-      </div>
-    </div>
+    <div class="run-assets">${rows}</div>
     <div class="run-footer">
       <div style="display:flex;flex-direction:column;gap:3px">
-        <span style="font-family:var(--fira);font-size:12px;color:${hColor}">${String(h).padStart(2,'0')}:xx UTC${hNote}</span>
+        <span style="font-family:var(--fira);font-size:12px;color:${hColor}">${String(h).padStart(2,'0')}:xx UTC${blocked?' · BLOCKED':''}</span>
         <span style="font-family:var(--fira);font-size:11px;color:var(--dim)">${fDate(r.candle)} &middot; ${elapsed(r.candle)}</span>
       </div>
-      ${r.signal_votes > 0 ? `<span style="font-family:var(--fira);font-size:11px;color:var(--sub)">${r.signal_votes} votes</span>` : ''}
+      <span style="font-family:var(--fira);font-size:11px;color:var(--sub)">${r.open_positions||0} open</span>
     </div>`;
 }
 
