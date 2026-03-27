@@ -396,6 +396,35 @@ tbody td:first-child {
   color: var(--dim); text-align: center;
 }
 
+/* ─── RIGHT COLUMN ─── */
+.right-col { display: flex; flex-direction: column; gap: 14px; align-self: start; }
+
+/* ─── LATEST RUN PANEL ─── */
+.run-assets { padding: 4px 0; }
+.run-asset-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--bd);
+}
+.run-asset-row:last-child { border-bottom: none; }
+.ra-name {
+  font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--sub); font-weight: 600; width: 76px; flex-shrink: 0;
+}
+.ra-price {
+  font-family: var(--fira); font-size: 17px; font-weight: 600; flex: 1;
+}
+.ra-meta {
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--fira); font-size: 11px; color: var(--sub);
+}
+.run-footer {
+  padding: 10px 18px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-top: 1px solid var(--bd);
+  gap: 8px;
+}
+
 /* ─── FOOTER ─── */
 .dash-footer {
   margin-top: 20px;
@@ -554,27 +583,43 @@ tbody td:first-child {
       </div>
     </div>
 
-    <!-- Open Position -->
-    <div class="panel" style="align-self:start;">
-      <div class="panel-hdr">
-        <span class="ph-title">Open Position</span>
-        <span class="ph-tag tag-wait" id="pos-tag">WAITING</span>
-      </div>
-      <div id="open-trade-body">
-        <div class="no-trade-msg">
-          <div class="radar-wrap">
-            <div class="radar-ring"></div>
-            <div class="radar-ring"></div>
-            <div class="radar-ring"></div>
-            <div class="radar-core"></div>
-          </div>
-          <div class="nt-text">Scanning for signal</div>
-          <div style="font-size:12px;color:var(--dim);margin-top:2px;font-family:var(--fira)">
-            Next check in <span id="nt-countdown">—</span>
+    <!-- Right Column -->
+    <div class="right-col">
+
+      <!-- Open Position -->
+      <div class="panel">
+        <div class="panel-hdr">
+          <span class="ph-title">Open Position</span>
+          <span class="ph-tag tag-wait" id="pos-tag">WAITING</span>
+        </div>
+        <div id="open-trade-body">
+          <div class="no-trade-msg">
+            <div class="radar-wrap">
+              <div class="radar-ring"></div>
+              <div class="radar-ring"></div>
+              <div class="radar-ring"></div>
+              <div class="radar-core"></div>
+            </div>
+            <div class="nt-text">Scanning for signal</div>
+            <div style="font-size:12px;color:var(--dim);margin-top:2px;font-family:var(--fira)">
+              Next check in <span id="nt-countdown">—</span>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+
+      <!-- Latest Run -->
+      <div class="panel">
+        <div class="panel-hdr">
+          <span class="ph-title">Latest Run</span>
+          <span class="ph-tag tag-wait" id="run-action-tag">—</span>
+        </div>
+        <div id="latest-run-body">
+          <div style="padding:28px;text-align:center;color:var(--sub);font-size:13px;font-family:var(--fira)">Loading…</div>
+        </div>
+      </div>
+
+    </div><!-- /right-col -->
   </div>
 
   <div class="dash-footer">
@@ -649,12 +694,13 @@ async function loadAll() {
   countdown = REFRESH;
   document.getElementById('err-bar').style.display = 'none';
   try {
-    const [s, t] = await Promise.all([
+    const [s, t, lr] = await Promise.all([
       fetch(API+'/status').then(r=>{ if(!r.ok) throw new Error('/status '+r.status); return r.json(); }),
-      fetch(API+'/trades').then(r=>{ if(!r.ok) throw new Error('/trades '+r.status); return r.json(); })
+      fetch(API+'/trades').then(r=>{ if(!r.ok) throw new Error('/trades '+r.status); return r.json(); }),
+      fetch(API+'/latest-run').then(r=>r.ok ? r.json() : null).catch(()=>null),
     ]);
     latestStatus = s; latestTrades = t;
-    renderAll(s, t);
+    renderAll(s, t, lr);
     const now = new Date();
     document.getElementById('last-updated').textContent =
       now.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
@@ -676,11 +722,12 @@ async function loadAll() {
 }
 
 // ── Render all ────────────────────────────────────────────────
-function renderAll(s, t) {
+function renderAll(s, t, lr) {
   renderStats(s, t);
   renderOpenTrade(s);
   renderEquity(t);
   renderTable(t);
+  renderLatestRun(lr);
 }
 
 function renderStats(s, t) {
@@ -1000,6 +1047,75 @@ function renderStrategyBreakdown(strategies) {
     html += ` <span style="color:var(--sub)">${data.count}T ${wr}%WR $${(data.pnl||0).toFixed(0)}</span>`;
   }
   existing.innerHTML = html;
+}
+
+// ── Latest Run ────────────────────────────────────────────────
+function renderLatestRun(r) {
+  const body = document.getElementById('latest-run-body');
+  const tag  = document.getElementById('run-action-tag');
+  if (!body) return;
+  if (!r || !r.candle) {
+    body.innerHTML = '<div style="padding:24px;text-align:center;color:var(--sub);font-size:12px;font-family:var(--fira)">No runs logged yet</div>';
+    return;
+  }
+
+  const actionMap = {
+    'none':                   ['NO SIGNAL',   'tag-wait'],
+    'holding':                ['HOLDING',     'tag-long'],
+    'opened_long':            ['OPENED LONG', 'tag-long'],
+    'opened_short':           ['OPENED SHORT','tag-short'],
+    'closed_win':             ['WIN',         'tag-live'],
+    'closed_loss':            ['LOSS',        'tag-short'],
+    'skip_max_trades':        ['MAX TRADES',  'tag-wait'],
+    'skip_daily_loss_limit':  ['LOSS LIMIT',  'tag-wait'],
+    'skip_daily_profit_limit':['PROFIT CAP',  'tag-wait'],
+    'signal_invalid_trade':   ['SIG ERROR',   'tag-wait'],
+  };
+  const [actionLabel, actionCls] = actionMap[r.action] || [(r.action||'—').toUpperCase(), 'tag-wait'];
+  if (tag) { tag.textContent = actionLabel; tag.className = 'ph-tag '+actionCls; }
+
+  // BTC signal badge
+  const sig   = r.signal;
+  const strat = r.signal_strategy || '';
+  let sigHtml = '<span style="color:var(--dim)">None</span>';
+  if (sig === 'BUY')  sigHtml = '<span class="chip chip-long">LONG</span>';
+  if (sig === 'SELL') sigHtml = '<span class="chip chip-short">SHORT</span>';
+  if (sig && strat) {
+    const sc = strat==='both' ? 'chip-both' : strat==='v2' ? 'chip-v2' : 'chip-con';
+    sigHtml += `&nbsp;<span class="chip ${sc}">${strat.toUpperCase()}</span>`;
+    if (r.signal_confidence) sigHtml += `&nbsp;<span style="color:var(--dim);font-size:10px">${r.signal_confidence}</span>`;
+  }
+
+  // Hour + blocked (consensus: 0-4 UTC + {9,10,12,13,14,15}; V2: 0-3 UTC)
+  const h = r.hour_utc ?? '—';
+  const conBlocked = (h >= 0 && h < 4) || [9,10,12,13,14,15].includes(h);
+  const v2Blocked  = (h >= 0 && h < 4);
+  const hColor = conBlocked ? 'var(--red)' : (v2Blocked ? 'var(--gold)' : 'var(--sub)');
+  const hNote  = conBlocked ? ' · BLOCKED' : '';
+
+  body.innerHTML = `
+    <div class="run-assets">
+      <div class="run-asset-row">
+        <div class="ra-name">BTC/USDT</div>
+        <div class="ra-price">$${f(r.btc_price, 0)}</div>
+        <div class="ra-meta">
+          <span>ATR&nbsp;$${f(r.atr, 0)}</span>
+          ${sigHtml}
+        </div>
+      </div>
+      <div class="run-asset-row">
+        <div class="ra-name">ETH/USDT</div>
+        <div class="ra-price">$${f(r.eth_price, 2)}</div>
+        <div class="ra-meta" style="color:var(--dim)">Corr. pair</div>
+      </div>
+    </div>
+    <div class="run-footer">
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <span style="font-family:var(--fira);font-size:12px;color:${hColor}">${String(h).padStart(2,'0')}:xx UTC${hNote}</span>
+        <span style="font-family:var(--fira);font-size:11px;color:var(--dim)">${fDate(r.candle)} &middot; ${elapsed(r.candle)}</span>
+      </div>
+      ${r.signal_votes > 0 ? `<span style="font-family:var(--fira);font-size:11px;color:var(--sub)">${r.signal_votes} votes</span>` : ''}
+    </div>`;
 }
 
 // ── Init ──────────────────────────────────────────────────────

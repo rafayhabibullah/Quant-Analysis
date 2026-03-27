@@ -50,6 +50,7 @@ db   = firestore.Client()
 
 STATE_DOC  = db.collection('bot').document('state')
 TRADES_COL = db.collection('trades')
+RUNS_COL   = db.collection('runs')
 
 INITIAL_CAPITAL = float(os.environ.get('INITIAL_CAPITAL', '1000'))
 
@@ -81,6 +82,10 @@ def save_state(state: dict):
 
 def save_trade(record: dict):
     TRADES_COL.add(record)
+
+
+def save_run(record: dict):
+    RUNS_COL.add(record)
 
 # ─────────────────────────────────────────────────────────────── #
 #  Core tick handler                                               #
@@ -117,13 +122,21 @@ def tick() -> dict:
 
     last       = btc.iloc[-1]
     btc_price  = float(last['close'])
+    eth_price  = float(eth.iloc[-1]['close'])
     candle_ts  = last['datetime'].isoformat()
 
     # Compute ATR for exit management
     atr_series = v2_atr(btc, V2_CONFIG['atr_period'])
     atr_val = float(atr_series.iloc[-1])
 
-    result = {'candle': candle_ts, 'btc_price': btc_price, 'action': 'none'}
+    result = {
+        'candle':    candle_ts,
+        'btc_price': btc_price,
+        'eth_price': eth_price,
+        'atr':       round(atr_val, 2),
+        'hour_utc':  now.hour,
+        'action':    'none',
+    }
 
     # ── Manage open trade ─────────────────────────────────────────
     if active is not None:
@@ -209,6 +222,11 @@ def tick() -> dict:
 
     # ── Check for new signal (dual strategy) ──────────────────────
     direction, info = check_signal(btc, eth)
+    if direction is not None:
+        result['signal']            = 'BUY' if direction == 'long' else 'SELL'
+        result['signal_strategy']   = info.get('strategy', '')
+        result['signal_confidence'] = info.get('confidence', '')
+        result['signal_votes']      = info.get('votes', 0)
     if direction is None:
         log.info(f"No signal  btc=${btc_price:.2f}")
         save_state(state)
@@ -279,6 +297,11 @@ def run_tick():
     try:
         result = tick()
         log.info(f"Tick result: {result}")
+        try:
+            if isinstance(result, dict) and result.get('status') != 'error':
+                save_run(result)
+        except Exception as e:
+            log.warning(f'save_run error: {e}')
         return jsonify(result), 200
     except Exception as e:
         log.exception('Unhandled error in tick')
@@ -316,6 +339,32 @@ def status():
         })
     except Exception as e:
         return _cors({'status': 'error', 'message': str(e)}, 500)
+
+
+@app.route('/latest-run', methods=['GET', 'OPTIONS'])
+def latest_run():
+    """Most recent tick result — public read-only."""
+    if request.method == 'OPTIONS':
+        return _cors({})
+    try:
+        docs = RUNS_COL.order_by('candle', direction=firestore.Query.DESCENDING).limit(1).stream()
+        runs = [d.to_dict() for d in docs]
+        return _cors(runs[0] if runs else {})
+    except Exception as e:
+        return _cors({'error': str(e)}, 500)
+
+
+@app.route('/runs', methods=['GET', 'OPTIONS'])
+def get_runs():
+    """Last 50 tick run logs — public read-only."""
+    if request.method == 'OPTIONS':
+        return _cors({})
+    try:
+        docs = RUNS_COL.order_by('candle', direction=firestore.Query.DESCENDING).limit(50).stream()
+        runs = [d.to_dict() for d in docs]
+        return _cors({'count': len(runs), 'runs': runs})
+    except Exception as e:
+        return _cors({'error': str(e)}, 500)
 
 
 @app.route('/trades', methods=['GET', 'OPTIONS'])
