@@ -181,7 +181,8 @@ def tick() -> dict:
             ss['pnl_today']    = 0.0
             ss['last_date']    = today
 
-        sym_result = {'price': price, 'atr': round(atr_val, 2), 'action': 'none'}
+        atr_dp = 2 if atr_val >= 1 else (4 if atr_val >= 0.01 else 6)
+        sym_result = {'price': price, 'atr': round(atr_val, atr_dp), 'action': 'none'}
 
         # ── Manage open trade ──────────────────────────────────
         if ss.get('active'):
